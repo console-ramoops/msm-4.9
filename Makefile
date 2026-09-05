@@ -370,6 +370,13 @@ STRIP		= $(CROSS_COMPILE)strip
 OBJCOPY		= $(CROSS_COMPILE)objcopy
 OBJDUMP		= $(CROSS_COMPILE)objdump
 endif
+
+# If compiling with Clang and LD was not explicitly set, default to ld.lld
+ifeq ($(origin LD),file)
+ifeq ($(cc-name),clang)
+LD		= ld.lld
+endif
+endif
 AWK		= awk
 GENKSYMS	= scripts/genksyms/genksyms
 INSTALLKERNEL  := installkernel
@@ -719,7 +726,9 @@ endif
 ifdef CONFIG_LTO_CLANG
 ifdef CONFIG_THINLTO
 lto-clang-flags	:= -flto=thin
+ifeq ($(ld-name),lld)
 LDFLAGS		+= --thinlto-cache-dir=.thinlto-cache
+endif
 else
 lto-clang-flags	:= -flto
 endif
