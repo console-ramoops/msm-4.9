@@ -82,12 +82,8 @@ extern void *__vmalloc_node_range(unsigned long size, unsigned long align,
 			unsigned long start, unsigned long end, gfp_t gfp_mask,
 			pgprot_t prot, unsigned long vm_flags, int node,
 			const void *caller);
-static inline void *__vmalloc_node_flags_caller(unsigned long size, int node,
-						gfp_t flags, void *caller)
-{
-	return __vmalloc_node_range(size, 1, VMALLOC_START, VMALLOC_END,
-				    flags, PAGE_KERNEL, 0, node, caller);
-}
+extern void *__vmalloc_node_flags_caller(unsigned long size,
+					 int node, gfp_t flags, void *caller);
 
 extern void vfree(const void *addr);
 extern void vfree_atomic(const void *addr);
