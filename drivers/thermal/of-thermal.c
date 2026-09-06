@@ -591,13 +591,22 @@ static void handle_thermal_trip(struct thermal_zone_device *tz,
 		bool temp_valid, int trip_temp)
 {
 	struct thermal_zone_device *zone;
-	struct __thermal_zone *data = tz->devdata;
+	struct __thermal_zone *data;
 	struct list_head *head;
+
+	if (!tz || IS_ERR(tz) || !tz->devdata)
+		return;
+
+	data = tz->devdata;
+	if (!data->senps)
+		return;
 
 	head = &data->senps->first_tz;
 	list_for_each_entry(data, head, list) {
+		if (!data)
+			continue;
 		zone = data->tzd;
-		if (data->mode == THERMAL_DEVICE_DISABLED)
+		if (!zone || data->mode == THERMAL_DEVICE_DISABLED)
 			continue;
 		if (!temp_valid) {
 			thermal_zone_device_update(zone,
