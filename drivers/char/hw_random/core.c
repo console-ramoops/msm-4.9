@@ -289,6 +289,7 @@ static struct miscdevice rng_miscdev = {
 	.name		= RNG_MODULE_NAME,
 	.nodename	= "hwrng",
 	.fops		= &rng_chrdev_ops,
+	.mode		= 0644,
 	.groups		= rng_dev_groups,
 };
 
