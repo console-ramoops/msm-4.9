@@ -17429,6 +17429,10 @@ int wlan_hdd_cfg80211_set_privacy(hdd_adapter_t *pAdapter,
     /*set wpa version*/
     pWextState->wpaVersion = IW_AUTH_WPA_VERSION_DISABLED;
 
+#ifndef NL80211_WPA_VERSION_3
+#define NL80211_WPA_VERSION_3 (1 << 2)
+#endif
+
     if (req->crypto.wpa_versions)
     {
         if (req->crypto.wpa_versions & (NL80211_WPA_VERSION_2 | NL80211_WPA_VERSION_3))
