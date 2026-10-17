@@ -6,6 +6,7 @@
 #include "compress.h"
 #include <linux/module.h>
 #include <linux/lz4.h>
+#include <asm/unaligned.h>
 
 #ifndef LZ4_DISTANCE_MAX	/* history window size */
 #define LZ4_DISTANCE_MAX 65535	/* set to maximum value by default */
@@ -15,6 +16,132 @@
 #ifndef LZ4_DECOMPRESS_INPLACE_MARGIN
 #define LZ4_DECOMPRESS_INPLACE_MARGIN(srcsize)  (((srcsize) >> 8) + 32)
 #endif
+
+/*
+ * 4.9 compat shims: this kernel's lib/lz4 only provides
+ * lz4_decompress_unknownoutputsize(), which fails with -EINVAL if the
+ * output buffer is smaller than the full uncompressed block size.
+ *
+ * Use lz4_decompress_unknownoutputsize() for full-output decompression
+ * (LZ4_decompress_safe) and provide a bounded block decoder for
+ * partial pcluster reads (LZ4_decompress_safe_partial).
+ */
+static inline int LZ4_decompress_safe(const char *src, char *dst,
+				      int compressedSize,
+				      int maxDecompressedSize)
+{
+	size_t dst_len = maxDecompressedSize;
+	int ret;
+
+	ret = lz4_decompress_unknownoutputsize(
+			(const unsigned char *)src,
+			compressedSize,
+			(unsigned char *)dst,
+			&dst_len);
+
+	if (ret)
+		return ret;
+
+	return dst_len;
+}
+
+static int LZ4_decompress_safe_partial(const char *src, char *dst,
+				       int compressedSize,
+				       int targetOutputSize,
+				       int maxDecompressedSize)
+{
+	const unsigned char *ip = (const unsigned char *)src;
+	const unsigned char *const iend = ip + compressedSize;
+	unsigned char *op = (unsigned char *)dst;
+	unsigned char *const oexit = op + min(targetOutputSize,
+					      maxDecompressedSize);
+
+	if (unlikely(compressedSize <= 0 || targetOutputSize < 0 ||
+		     maxDecompressedSize < 0))
+		return -EINVAL;
+
+	if (unlikely(op == oexit))
+		return 0;
+
+	while (ip < iend) {
+		unsigned int token = *ip++;
+		size_t length = token >> 4;
+		size_t offset;
+		const unsigned char *match;
+
+		if (length == 15) {
+			unsigned char s;
+
+			do {
+				if (unlikely(ip >= iend))
+					return -EINVAL;
+				s = *ip++;
+				length += s;
+			} while (s == 255);
+		}
+
+		if (length >= (size_t)(oexit - op)) {
+			size_t rem = oexit - op;
+
+			if (unlikely(rem > (size_t)(iend - ip)))
+				return -EINVAL;
+			memcpy(op, ip, rem);
+			op += rem;
+			break;
+		}
+
+		if (unlikely(length > (size_t)(iend - ip)))
+			return -EINVAL;
+		memcpy(op, ip, length);
+		ip += length;
+		op += length;
+
+		if (ip == iend)
+			break;
+
+		if (unlikely(iend - ip < 2))
+			return -EINVAL;
+		offset = get_unaligned_le16(ip);
+		ip += 2;
+		if (unlikely(!offset ||
+			     offset > (size_t)(op - (unsigned char *)dst)))
+			return -EINVAL;
+		match = op - offset;
+
+		length = token & 15;
+		if (length == 15) {
+			unsigned char s;
+
+			do {
+				if (unlikely(ip >= iend))
+					return -EINVAL;
+				s = *ip++;
+				length += s;
+			} while (s == 255);
+		}
+		length += 4;
+
+		if (length > (size_t)(oexit - op))
+			length = oexit - op;
+
+		if (offset >= 8) {
+			while (length >= 8) {
+				put_unaligned(get_unaligned((const u64 *)match),
+					      (u64 *)op);
+				op += 8;
+				match += 8;
+				length -= 8;
+			}
+		}
+		while (length--)
+			*op++ = *match++;
+
+		if (op == oexit)
+			break;
+	}
+
+	return (int)(op - (unsigned char *)dst);
+}
 
 struct z_erofs_decompressor {
 	/*

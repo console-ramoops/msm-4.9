@@ -156,10 +156,25 @@ static inline void erofs_workgroup_unfreeze(struct erofs_workgroup *grp,
 	preempt_enable();
 }
 
+/*
+ * 4.9 compat: atomic_cond_read_relaxed() does not exist in this kernel.
+ * There is no memory barrier to preserve ("relaxed"), and the caller
+ * re-validates state with a cmpxchg after the wait, so a plain
+ * atomic_read() + cpu_relax() loop is equivalent.
+ * Remove this workaround if you ever backport the upstream macro.
+ */
 static inline int erofs_wait_on_workgroup_freezed(struct erofs_workgroup *grp)
 {
-	return atomic_cond_read_relaxed(&grp->refcount,
-					VAL != EROFS_LOCKED_MAGIC);
+	int val;
+
+	for (;;) {
+		val = atomic_read(&grp->refcount);
+
+		if (val != EROFS_LOCKED_MAGIC)
+			return val;
+
+		cpu_relax();
+	}
 }
 #else
 static inline bool erofs_workgroup_try_to_freeze(struct erofs_workgroup *grp,
@@ -458,7 +473,9 @@ static inline int z_erofs_load_lz4_config(struct super_block *sb,
 }
 #endif	/* !CONFIG_EROFS_FS_ZIP */
 
+#ifndef EFSCORRUPTED
 #define EFSCORRUPTED    EUCLEAN         /* Filesystem is corrupted */
+#endif
 
 #ifndef lru_to_page
 #define lru_to_page(head) (list_entry((head)->prev, struct page, lru))

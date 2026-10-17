@@ -1005,8 +1005,7 @@ static int z_erofs_decompress_pcluster(struct super_block *sb,
 	} else {
 		pages = kmalloc_array(nr_pages, sizeof(struct page *),
 				       GFP_KERNEL);
-
-		if (!pages) 
+		if (!pages)
 			pages = vmalloc(nr_pages * sizeof(struct page *));
 
 		if (!pages && nr_pages > Z_EROFS_VMAP_GLOBAL_PAGES)
