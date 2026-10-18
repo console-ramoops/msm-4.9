@@ -468,7 +468,7 @@ static struct notifier_block nb = {
 	.notifier_call = modem_notifier_cb,
 };
 
-static void shared_hyp_mapping(int index)
+static int shared_hyp_mapping(int index)
 {
 	int ret;
 	u32 source_vmlist[1] = {VMID_HLOS};
@@ -477,7 +477,7 @@ static void shared_hyp_mapping(int index)
 
 	if (index >= MAX_CLIENTS) {
 		pr_err("memshare: %s, Invalid Client\n", __func__);
-		return;
+		return -EINVAL;
 	}
 
 	ret = hyp_assign_phys(memblock[index].phy_addr,
@@ -488,9 +488,10 @@ static void shared_hyp_mapping(int index)
 	if (ret != 0) {
 		pr_err("memshare: hyp_assign_phys failed size=%u err=%d\n",
 				memblock[index].size, ret);
-		return;
+		return ret;
 	}
 	memblock[index].hyp_mapping = 1;
+	return 0;
 }
 
 static int handle_alloc_req(void *req_h, void *req, void *conn_h)
@@ -605,14 +606,21 @@ static int handle_alloc_generic_req(void *req_h, void *req, void *conn_h)
 	memblock[index].sequence_id = alloc_req->sequence_id;
 	memblock[index].alloc_request = 1;
 
-	fill_alloc_response(alloc_resp, index, &resp);
 	/*
 	 * Perform the Hypervisor mapping in order to avoid XPU viloation
 	 * to the allocated region for Modem Clients
 	 */
 	if (!memblock[index].hyp_mapping &&
-		memblock[index].allotted)
-		shared_hyp_mapping(index);
+		memblock[index].allotted) {
+		rc = shared_hyp_mapping(index);
+		if (rc) {
+			pr_err("memshare: %s: hyp mapping failed, rejecting alloc request to prevent XPU reset\n",
+				__func__);
+			resp = 1;
+		}
+	}
+
+	fill_alloc_response(alloc_resp, index, &resp);
 	mutex_unlock(&memsh_drv->mem_share);
 	pr_debug("memshare: alloc_resp.num_bytes :%d, alloc_resp.resp.result :%lx\n",
 			  alloc_resp->dhms_mem_alloc_addr_info[0].num_bytes,
